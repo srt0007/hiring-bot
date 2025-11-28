@@ -1,0 +1,14 @@
+Hello {candidate_name}! 👋
+
+Great news! Your application for the *{role_name}* position has been shortlisted.
+
+We were impressed by your profile and would like to invite you to the next round of our hiring process.
+
+Our HR team will reach out to you shortly via email to schedule an interview.
+
+Please check your email for detailed information.
+
+Looking forward to speaking with you soon!
+
+Best regards,
+Hiring Team

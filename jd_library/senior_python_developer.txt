@@ -1,0 +1,24 @@
+Senior Python Developer
+
+We are looking for an experienced Python Developer to join our team.
+
+Required Skills:
+- 5+ years of Python development experience
+- Strong knowledge of Django/Flask frameworks
+- Experience with RESTful APIs
+- Database skills (PostgreSQL, MongoDB)
+- Docker and containerization
+- AWS or cloud platforms
+- Git version control
+
+Nice to Have:
+- FastAPI experience
+- Microservices architecture
+- CI/CD pipelines
+- Machine Learning basics
+
+Responsibilities:
+- Design and develop scalable Python applications
+- Write clean, maintainable code
+- Collaborate with cross-functional teams
+- Mentor junior developers

@@ -1,0 +1,24 @@
+# Web UI dependencies for Streamlit deployment
+# Install these in addition to requirements.txt
+
+# Streamlit web framework
+streamlit==1.32.0
+
+# Data visualization and manipulation
+pandas==2.2.0
+
+# Additional utilities
+pillow==10.2.0
+
+# All core dependencies from requirements.txt
+PyPDF2==3.0.1
+python-docx==1.1.0
+phonenumbers==8.13.26
+google-auth==2.25.2
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+google-api-python-client==2.110.0
+gspread==5.12.3
+twilio==8.11.1
+python-dotenv==1.0.0
+python-dateutil==2.8.2

@@ -1,0 +1,24 @@
+Data Analyst
+
+We're seeking a Data Analyst to help drive data-driven decision making.
+
+Required Skills:
+- SQL and database querying
+- Excel/Google Sheets (advanced)
+- Data visualization (Tableau, Power BI)
+- Python for data analysis (pandas, numpy)
+- Statistical analysis
+- Report creation and presentation
+
+Nice to Have:
+- R programming
+- Machine learning basics
+- Business intelligence tools
+- ETL processes
+
+Responsibilities:
+- Analyze business data and provide insights
+- Create dashboards and reports
+- Identify trends and patterns
+- Work with stakeholders to understand data needs
+- Present findings to management

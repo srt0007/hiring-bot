@@ -1,0 +1,11 @@
+{
+  "roles": [
+    {
+      "role_id": "ROLE001",
+      "role_name": "Python Developer",
+      "jd_file": "jd_files/job_description.txt",
+      "active": true,
+      "created_date": "2025-11-28"
+    }
+  ]
+}

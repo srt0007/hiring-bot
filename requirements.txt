@@ -1,0 +1,38 @@
+# Core dependencies for Phase 1 Hiring Automation Tool
+
+# Resume parsing
+PyPDF2==3.0.1
+python-docx==1.1.0
+
+# OCR for image-based PDFs
+# Cloud OCR (works on any machine)
+requests==2.31.0
+# Local OCR (faster if Tesseract installed, optional)
+pytesseract
+pillow
+pdf2image
+
+# Text processing and extraction
+phonenumbers==8.13.26
+
+# Google Sheets integration
+google-auth==2.25.2
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+google-api-python-client==2.110.0
+gspread==5.12.3
+
+# Email sending (Gmail API)
+# Already included in google-api-python-client
+
+# WhatsApp sending (Twilio)
+twilio==8.11.1
+
+# Environment variable management
+python-dotenv==1.0.0
+
+# Date/time utilities
+python-dateutil==2.8.2
+
+# Regular expressions (built-in, but listed for reference)
+# re - built-in module

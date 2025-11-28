@@ -1,0 +1,36 @@
+Python Developer - Job Description
+
+We are looking for a talented Python Developer to join our growing team.
+
+Requirements:
+- 3+ years of experience in Python development
+- Strong knowledge of Python frameworks such as Django or Flask
+- Experience with RESTful APIs and microservices architecture
+- Proficiency in SQL databases (PostgreSQL or MySQL)
+- Familiarity with version control systems (Git)
+- Experience with cloud platforms (AWS, Azure, or GCP) is a plus
+- Knowledge of Docker and containerization
+- Understanding of agile development methodologies
+
+Skills:
+- Python
+- Django
+- Flask
+- PostgreSQL
+- REST API
+- Git
+- AWS
+- Docker
+- Problem solving
+- Team collaboration
+- Communication skills
+
+Responsibilities:
+- Develop and maintain Python-based applications
+- Design and implement RESTful APIs
+- Collaborate with cross-functional teams
+- Write clean, maintainable code
+- Participate in code reviews
+- Troubleshoot and debug applications
+
+This is a sample job description. Please replace with your actual JD.
