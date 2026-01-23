@@ -12,6 +12,13 @@ import tempfile
 import shutil
 import importlib
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not installed, will use system environment variables
+
 # Add src directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
@@ -28,6 +35,8 @@ from src.jd_matcher import JDMatcher
 from src.google_sheets_manager import GoogleSheetsManager
 from src.email_sender import EmailSender
 from src.whatsapp_sender import WhatsAppSender
+from src.auth_pages import show_login_page, show_register_page, show_admin_users_page, show_user_profile
+from src.drive_uploader import DriveUploader
 
 # Page configuration
 st.set_page_config(
@@ -91,6 +100,36 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ============================================================
+# AUTHENTICATION
+# ============================================================
+
+# Initialize authentication session state
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'user_email' not in st.session_state:
+    st.session_state.user_email = None
+if 'user_role' not in st.session_state:
+    st.session_state.user_role = None
+if 'show_register' not in st.session_state:
+    st.session_state.show_register = False
+
+# Check authentication
+if not st.session_state.authenticated:
+    # Show login or register page
+    if st.session_state.get('show_register', False):
+        show_register_page()
+    else:
+        show_login_page()
+    st.stop()
+
+# User is authenticated - show user profile in sidebar
+show_user_profile()
+
+# ============================================================
+# MAIN APPLICATION (User is authenticated)
+# ============================================================
+
 # Initialize session state
 if 'processed_candidates' not in st.session_state:
     st.session_state.processed_candidates = []
@@ -101,9 +140,14 @@ if 'sheets_manager' not in st.session_state:
 
 # Sidebar navigation
 st.sidebar.title("📋 Navigation")
+# Navigation options (add admin option for admins)
+nav_options = ["🏠 Home", "📝 Manage Job Descriptions", "🤖 AI Evaluator", "👥 Review Candidates", "📧 Send Notifications", "⚙️ Settings"]
+if st.session_state.user_role == 'admin':
+    nav_options.append("👥 Admin: Manage Users")
+
 page = st.sidebar.radio(
     "Go to",
-    ["🏠 Home", "📄 Process Resumes", "👥 Review Candidates", "📧 Send Notifications", "⚙️ Settings"]
+    nav_options
 )
 
 st.sidebar.markdown("---")
@@ -263,19 +307,140 @@ if page == "🏠 Home":
         st.markdown(f"[🔗 Open Candidates Sheet]({st.session_state.sheet_url})")
 
 # ============================================================
-# PROCESS RESUMES PAGE
+# MANAGE JOB DESCRIPTIONS PAGE
 # ============================================================
-elif page == "📄 Process Resumes":
-    st.markdown('<div class="main-header">📄 Process Resumes</div>', unsafe_allow_html=True)
+elif page == "📝 Manage Job Descriptions":
+    st.markdown('<div class="main-header">📝 Manage Job Descriptions</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Add, edit, and manage job roles for screening</div>', unsafe_allow_html=True)
 
-    # Check setup
-    errors, warnings = validate_setup()
-    if errors:
-        st.error("⚠️ Please fix the errors on the Home page before processing resumes.")
+    # Ensure jd_library folder exists
+    jd_library_path = 'jd_library'
+    if not os.path.exists(jd_library_path):
+        os.makedirs(jd_library_path)
+
+    # Get all existing JD files
+    jd_files = [f for f in os.listdir(jd_library_path) if f.endswith('.txt')]
+
+    st.markdown("### 📚 Existing Job Descriptions")
+
+    if jd_files:
+        st.success(f"✅ {len(jd_files)} job description(s) found")
+
+        # Display existing JDs in a table-like format
+        for jd_file in sorted(jd_files):
+            role_name = jd_file.replace('.txt', '').replace('_', ' ').title()
+            jd_path = os.path.join(jd_library_path, jd_file)
+
+            with st.expander(f"📄 {role_name}", expanded=False):
+                # Read the JD content
+                with open(jd_path, 'r', encoding='utf-8') as f:
+                    jd_content = f.read()
+
+                # Edit mode
+                edited_content = st.text_area(
+                    "Job Description:",
+                    value=jd_content,
+                    height=300,
+                    key=f"edit_{jd_file}"
+                )
+
+                col1, col2 = st.columns([1, 4])
+
+                with col1:
+                    if st.button("💾 Save", key=f"save_{jd_file}"):
+                        with open(jd_path, 'w', encoding='utf-8') as f:
+                            f.write(edited_content)
+                        st.success(f"✅ Updated {role_name}")
+                        st.rerun()
+
+                with col2:
+                    if st.button("🗑️ Delete", key=f"delete_{jd_file}"):
+                        os.remove(jd_path)
+                        st.success(f"✅ Deleted {role_name}")
+                        st.rerun()
+    else:
+        st.info("ℹ️ No job descriptions found. Create your first one below!")
+
+    st.markdown("---")
+    st.markdown("### ➕ Add New Job Description")
+
+    # Form to create new JD
+    with st.form("new_jd_form"):
+        new_role_name = st.text_input(
+            "Role Name:",
+            placeholder="e.g., Senior Data Analyst",
+            help="Enter the job role name"
+        )
+
+        new_jd_content = st.text_area(
+            "Job Description:",
+            height=300,
+            placeholder="Paste the full job description here...",
+            help="Include all details: responsibilities, requirements, qualifications, etc."
+        )
+
+        submit_button = st.form_submit_button("➕ Create Job Description", type="primary")
+
+        if submit_button:
+            if not new_role_name:
+                st.error("❌ Please enter a role name")
+            elif not new_jd_content:
+                st.error("❌ Please enter job description content")
+            else:
+                # Convert role name to filename
+                filename = new_role_name.lower().replace(' ', '_').replace('-', '_') + '.txt'
+                filepath = os.path.join(jd_library_path, filename)
+
+                # Check if file already exists
+                if os.path.exists(filepath):
+                    st.error(f"❌ A job description for '{new_role_name}' already exists!")
+                else:
+                    # Save the new JD
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write(new_jd_content)
+
+                    st.success(f"✅ Created job description: {new_role_name}")
+                    st.info(f"📁 Saved as: {filename}")
+                    st.balloons()
+                    st.rerun()
+
+# ============================================================
+# AI EVALUATOR PAGE
+# ============================================================
+elif page == "🤖 AI Evaluator":
+    st.markdown('<div class="main-header">🤖 AI Evaluator</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Powered by OpenAI - Intelligent resume evaluation and ranking</div>', unsafe_allow_html=True)
+
+    # Check for OpenAI API key
+    api_key = os.getenv('OPENAI_API_KEY')
+    if not api_key:
+        st.error("❌ OpenAI API key not found!")
+        st.info("""
+        **Setup Required:**
+
+        1. Get your API key from: https://platform.openai.com/api-keys
+        2. Add it to your `.env` file:
+           ```
+           OPENAI_API_KEY=your-key-here
+           ```
+        3. Restart the app
+
+        Or use the command-line tool: `python evaluate_resumes.py`
+        """)
         st.stop()
 
-    # Job Description / Role Selection
-    st.markdown("### 📝 Step 1: Select Job Role")
+    st.success("✅ OpenAI API key configured")
+
+    # Import evaluator
+    try:
+        from src.resume_evaluator import ResumeEvaluator
+        evaluator = ResumeEvaluator()
+    except Exception as e:
+        st.error(f"❌ Failed to initialize AI evaluator: {str(e)}")
+        st.stop()
+
+    # Job Description Selection
+    st.markdown("### 📝 Step 1: Select Job Description")
 
     # Auto-detect all JD files in jd_library folder
     jd_library_path = 'jd_library'
@@ -285,50 +450,43 @@ elif page == "📄 Process Resumes":
     # Get all .txt files in jd_library
     jd_files_list = [f for f in os.listdir(jd_library_path) if f.endswith('.txt')]
 
-    # Also check old jd_files folder for backward compatibility
-    if os.path.exists('jd_files/job_description.txt') and 'job_description.txt' not in jd_files_list:
-        jd_files_list.insert(0, 'job_description.txt (from jd_files)')
+    # Create a mapping of display names to filenames
+    jd_display_map = {}
+    for jd_file in jd_files_list:
+        # Convert filename to display name: senior_python_developer.txt -> Senior Python Developer
+        display_name = jd_file.replace('.txt', '').replace('_', ' ').title()
+        jd_display_map[display_name] = jd_file
 
-    if not jd_files_list:
+    # Also check old jd_files folder for backward compatibility
+    if os.path.exists('jd_files/job_description.txt'):
+        jd_display_map['Full Stack Developer (Legacy)'] = 'job_description.txt (from jd_files)'
+
+    if not jd_display_map:
         st.warning("⚠️ No job descriptions found!")
         st.info("""
         **How to add job roles:**
-        1. Go to the `jd_library` folder (created for you)
-        2. For each position, create a .txt file with the JD
-           - Example: `senior_python_developer.txt`
-           - Example: `data_analyst.txt`
-        3. Refresh this page
 
-        **Or use the form below to create one now:**
+        Use the **"📝 Manage Job Descriptions"** page in the sidebar to add new JDs easily!
+
+        Your team can add, edit, and delete job descriptions without touching any files.
         """)
-
-        # Simple form to create JD
-        new_role_name = st.text_input("Role Name (e.g., Senior Python Developer):")
-        new_jd_text = st.text_area("Job Description:", height=200)
-
-        if st.button("💾 Create Job Role") and new_role_name and new_jd_text:
-            # Convert role name to filename
-            filename = new_role_name.lower().replace(' ', '_') + '.txt'
-            filepath = os.path.join(jd_library_path, filename)
-
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(new_jd_text)
-
-            st.success(f"✅ Created: {filename}")
-            st.rerun()
 
         jd_text = ""
         selected_jd_file = None
+        selected_display_name = None
     else:
         # Show success message with count
-        st.success(f"✅ Found {len(jd_files_list)} job role(s)")
+        st.success(f"✅ Found {len(jd_display_map)} job role(s)")
 
-        # Let user select which role
-        selected_jd_file = st.selectbox(
+        # Let user select which role (using display names)
+        selected_display_name = st.selectbox(
             "Select the job role you're screening for:",
-            options=jd_files_list,
+            options=sorted(jd_display_map.keys()),
             help="Choose which position these resumes are for"
         )
+
+        # Get the actual filename from the display name
+        selected_jd_file = jd_display_map[selected_display_name]
 
         # Load the selected JD
         if selected_jd_file.endswith('(from jd_files)'):
@@ -345,7 +503,7 @@ elif page == "📄 Process Resumes":
                 "Job Description:",
                 value=jd_text,
                 height=200,
-                key="edit_jd"
+                key=f"edit_jd_{selected_jd_file}"
             )
 
             if st.button("💾 Save Changes"):
@@ -376,8 +534,8 @@ elif page == "📄 Process Resumes":
 
     st.markdown("---")
 
-    # Process button
-    st.markdown("### ⚙️ Step 3: Process")
+    # Evaluate Button
+    st.markdown("### ⚙️ Step 3: Evaluate & Rank")
 
     # Auto-generate role name and ID from selected JD file
     if selected_jd_file:
@@ -398,143 +556,308 @@ elif page == "📄 Process Resumes":
         role_name = "Unknown Role"
         role_id = "ROLE000"
 
-    if st.button("🚀 Process Resumes", type="primary", disabled=not uploaded_files or not jd_text):
+    if st.button("🤖 AI Evaluate Resumes", type="primary", disabled=not uploaded_files or not jd_text):
         if not uploaded_files:
             st.error("❌ Please upload at least one resume")
         elif not jd_text:
-            st.error("❌ Please enter a job description")
+            st.error("❌ Please select or enter a job description")
         else:
-            # Save uploaded files to resumes folder
-            with st.spinner("📤 Saving uploaded files..."):
+            # Save uploaded files temporarily
+            temp_resumes = []
+
+            with st.spinner("📤 Processing uploaded files..."):
                 for uploaded_file in uploaded_files:
                     file_path = os.path.join('resumes', uploaded_file.name)
                     with open(file_path, 'wb') as f:
                         f.write(uploaded_file.getbuffer())
 
-            # Initialize components
-            with st.spinner("🔧 Initializing components..."):
-                try:
-                    resume_parser = ResumeParser()
-                    jd_matcher = JDMatcher(jd_file_path='jd_files/job_description.txt')
-                    sheets_manager = get_sheets_manager()
-
-                    if sheets_manager is None:
-                        st.error("❌ Failed to initialize Google Sheets")
-                        st.stop()
-
-                    st.success("✅ Components initialized")
-                except Exception as e:
-                    st.error(f"❌ Initialization error: {str(e)}")
-                    st.stop()
-
             # Parse resumes
-            st.markdown("### 📊 Processing Results")
+            with st.spinner("📄 Parsing resumes..."):
+                resume_parser = ResumeParser()
+                for uploaded_file in uploaded_files:
+                    file_path = os.path.join('resumes', uploaded_file.name)
+                    try:
+                        parsed_data = resume_parser.parse_resume(file_path)
+                        if parsed_data and parsed_data.get('resume_text'):
+                            temp_resumes.append({
+                                'filename': uploaded_file.name,
+                                'resume_text': parsed_data['resume_text']
+                            })
+                    except Exception as e:
+                        st.warning(f"⚠️ Could not parse {uploaded_file.name}: {str(e)}")
+
+            if not temp_resumes:
+                st.error("❌ No resumes could be parsed successfully")
+                st.stop()
+
+            st.success(f"✅ Parsed {len(temp_resumes)} resume(s)")
+
+            # Evaluate with AI
+            st.markdown("### 🤖 AI Evaluation in Progress...")
+
             progress_bar = st.progress(0)
             status_text = st.empty()
 
-            candidates = []
+            try:
+                results = []
+                for idx, resume in enumerate(temp_resumes):
+                    status_text.text(f"Evaluating {idx + 1}/{len(temp_resumes)}: {resume['filename']}")
 
-            for idx, uploaded_file in enumerate(uploaded_files):
-                status_text.text(f"Processing {idx + 1}/{len(uploaded_files)}: {uploaded_file.name}")
+                    # Extract candidate data (pass JD for relevant experience calculation)
+                    candidate_data = evaluator.extract_candidate_data(resume['resume_text'], jd_text)
+                    print(f"[DEBUG] Extracted candidate data: {candidate_data}")
 
-                try:
-                    # Parse resume
-                    file_path = os.path.join('resumes', uploaded_file.name)
-                    parsed_data = resume_parser.parse_resume(file_path)
+                    # Fallback: If AI didn't extract name/phone/email, try traditional parser
+                    if not candidate_data.get('name') or not candidate_data.get('phone') or not candidate_data.get('email'):
+                        print(f"[DEBUG] AI extraction incomplete, trying fallback parser...")
+                        fallback_name = resume_parser.extract_name(resume['resume_text'], resume['filename'])
+                        fallback_phone = resume_parser.extract_phone(resume['resume_text'])
+                        fallback_email = resume_parser.extract_email(resume['resume_text'])
+                        fallback_location = resume_parser.extract_location(resume['resume_text'])
 
-                    # Validate parsed_data is a dictionary
-                    if parsed_data is None or not isinstance(parsed_data, dict):
-                        st.warning(f"⚠️ Could not parse {uploaded_file.name}")
-                        continue
+                        # Use fallback values if AI returned None
+                        if not candidate_data.get('name') and fallback_name:
+                            candidate_data['name'] = fallback_name
+                            print(f"[DEBUG] Used fallback name: {fallback_name}")
+                        if not candidate_data.get('phone') and fallback_phone:
+                            candidate_data['phone'] = fallback_phone
+                            print(f"[DEBUG] Used fallback phone: {fallback_phone}")
+                        if not candidate_data.get('email') and fallback_email:
+                            candidate_data['email'] = fallback_email
+                            print(f"[DEBUG] Used fallback email: {fallback_email}")
+                        if not candidate_data.get('location') and fallback_location:
+                            candidate_data['location'] = fallback_location
+                            print(f"[DEBUG] Used fallback location: {fallback_location}")
 
-                    if 'resume_text' not in parsed_data or not parsed_data['resume_text']:
-                        st.warning(f"⚠️ No text extracted from {uploaded_file.name}")
-                        continue
+                    # Evaluate resume
+                    evaluation = evaluator.evaluate_resume(resume['resume_text'], jd_text)
+                    print(f"[DEBUG] Evaluation result: fit_score={evaluation.get('fit_score')}, fit_label={evaluation.get('fit_label')}")
 
-                    # Match against JD (pass the full dictionary, not just the text)
-                    evaluation_result = jd_matcher.evaluate_candidate(parsed_data)
-
-                    # Extract evaluation fields
-                    evaluation = {
-                        'fit_score': evaluation_result.get('auto_fit_score', 0),
-                        'fit_label': evaluation_result.get('auto_fit_label', 'Unknown'),
-                        'screening_comment': evaluation_result.get('auto_screen_comment', '')
+                    # Combine results
+                    result = {
+                        'filename': resume['filename'],
+                        'candidate_name': candidate_data.get('name'),
+                        'email': candidate_data.get('email'),
+                        'phone': candidate_data.get('phone'),
+                        'location': candidate_data.get('location'),
+                        'total_years_experience': candidate_data.get('total_years_experience'),
+                        'relevant_years_experience': candidate_data.get('relevant_years_experience'),
+                        'experience_brief': candidate_data.get('experience_brief'),
+                        'fit_score': evaluation.get('fit_score', 0),
+                        'fit_label': evaluation.get('fit_label', 'Unknown'),
+                        'reasoning': evaluation.get('reasoning', ''),
+                        'strengths': evaluation.get('strengths', []),
+                        'gaps': evaluation.get('gaps', [])
                     }
+                    print(f"[DEBUG] Combined result: name={result['candidate_name']}, phone={result['phone']}, email={result['email']}, location={result['location']}, total_yrs={result['total_years_experience']}, relevant_yrs={result['relevant_years_experience']}, exp_brief={result['experience_brief']}, score={result['fit_score']}")
 
-                    # Ensure evaluation is a dictionary
-                    if evaluation is None or not isinstance(evaluation, dict):
-                        st.warning(f"⚠️ Could not evaluate {uploaded_file.name} - invalid evaluation result")
-                        continue
+                    results.append(result)
+                    progress_bar.progress((idx + 1) / len(temp_resumes))
 
-                    # Extract candidate info safely
-                    candidate_name = parsed_data.get('candidate_name') if isinstance(parsed_data, dict) else 'Unknown'
-                    phone = parsed_data.get('phone', '') if isinstance(parsed_data, dict) else ''
-                    email = parsed_data.get('email', '') if isinstance(parsed_data, dict) else ''
-                    location = parsed_data.get('location', '') if isinstance(parsed_data, dict) else ''
+                # Sort by fit_score
+                results.sort(key=lambda x: x['fit_score'], reverse=True)
 
-                    fit_score = evaluation.get('fit_score', 0) if isinstance(evaluation, dict) else 0
-                    fit_label = evaluation.get('fit_label', 'Unknown') if isinstance(evaluation, dict) else 'Unknown'
-                    screen_comment = evaluation.get('screening_comment', '') if isinstance(evaluation, dict) else ''
+                # Store results and JD info in session state for the save button
+                st.session_state.ai_eval_results = results
+                st.session_state.ai_eval_jd_name = selected_jd_file.replace('.txt', '').replace('_', ' ').title() if 'selected_jd_file' in locals() else 'AI Evaluation'
 
-                    # Combine data
-                    candidate = {
-                        'role_id': role_id,
-                        'role_name': role_name,
-                        'candidate_name': candidate_name,
-                        'phone': phone,
-                        'email': email,
-                        'location': location,
-                        'source_portal': 'Manual Upload',
-                        'auto_fit_score': fit_score,
-                        'auto_fit_label': fit_label,
-                        'auto_screen_comment': screen_comment,
-                        'hr_approved': 'No'
-                    }
+                status_text.text("✅ Evaluation complete!")
 
-                    candidates.append(candidate)
-                    st.success(f"✅ {candidate_name} - {fit_score}% ({fit_label})")
+            except Exception as e:
+                st.error(f"❌ Evaluation failed: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
 
-                except Exception as e:
-                    import traceback
-                    error_details = traceback.format_exc()
-                    st.error(f"❌ Error processing {uploaded_file.name}: {str(e)}")
-                    # Print full traceback to console for debugging
-                    print(f"Full error for {uploaded_file.name}:")
-                    print(error_details)
+    # Display Results (moved outside button block to persist across reruns)
+    if 'ai_eval_results' in st.session_state and st.session_state.ai_eval_results:
+        results = st.session_state.ai_eval_results
 
-                progress_bar.progress((idx + 1) / len(uploaded_files))
+        st.markdown("---")
+        st.markdown("### 📊 Evaluation Results")
 
-            status_text.text("✅ All resumes processed!")
+        # Summary stats
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Candidates", len(results))
+        with col2:
+            avg_score = sum(r['fit_score'] for r in results) / len(results) if results else 0
+            st.metric("Average Score", f"{avg_score:.1f}/5")
+        with col3:
+            strong_matches = sum(1 for r in results if r['fit_score'] >= 4)
+            st.metric("Strong Matches (4-5)", strong_matches)
+        with col4:
+            top_score = results[0]['fit_score'] if results else 0
+            st.metric("Top Score", f"{top_score}/5")
 
-            # Save to Google Sheets
-            if candidates:
+        st.markdown("---")
+
+        # Detailed results
+        for idx, result in enumerate(results):
+            rank = idx + 1
+
+            # Color code by score
+            if result['fit_score'] >= 4:
+                header_emoji = "🌟"
+            elif result['fit_score'] >= 3:
+                header_emoji = "✅"
+            elif result['fit_score'] >= 2:
+                header_emoji = "⚠️"
+            else:
+                header_emoji = "❌"
+
+            with st.expander(f"{header_emoji} Rank #{rank}: {result['candidate_name'] or 'Unknown'} - {result['fit_score']}/5 ({result['fit_label']})", expanded=(idx < 3)):
+                col1, col2 = st.columns([2, 1])
+
+                with col1:
+                    st.markdown(f"**Email:** {result['email'] or 'N/A'}")
+                    st.markdown(f"**Phone:** {result['phone'] or 'N/A'}")
+                    st.markdown(f"**Location:** {result['location'] or 'N/A'}")
+                    st.markdown(f"**Experience:** {result.get('experience_brief') or 'N/A'}")
+
+                    # Show years of experience
+                    total_yrs = result.get('total_years_experience')
+                    relevant_yrs = result.get('relevant_years_experience')
+                    if total_yrs is not None:
+                        exp_text = f"{total_yrs} years total"
+                        if relevant_yrs is not None:
+                            exp_text += f" ({relevant_yrs} years relevant)"
+                        st.markdown(f"**Years:** {exp_text}")
+
+                    st.markdown("**Reasoning:**")
+                    st.info(result['reasoning'])
+
+                    if result['strengths']:
+                        st.markdown("**Strengths:**")
+                        for strength in result['strengths']:
+                            st.markdown(f"- ✓ {strength}")
+
+                    if result['gaps'] and result['gaps'] != ['None']:
+                        st.markdown("**Gaps/Concerns:**")
+                        for gap in result['gaps']:
+                            st.markdown(f"- ✗ {gap}")
+
+                with col2:
+                    st.markdown(f"### {result['fit_score']}/5")
+                    st.markdown(f"**{result['fit_label']}**")
+                    st.markdown(f"📄 {result['filename']}")
+
+        # Download results and save to Google Sheets
+        st.markdown("---")
+        st.markdown("### 💾 Save & Export Results")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            import json
+            json_data = json.dumps(results, indent=2)
+            st.download_button(
+                label="📥 Download JSON",
+                data=json_data,
+                file_name="evaluation_results.json",
+                mime="application/json"
+            )
+
+        with col2:
+            if st.button("📊 Save to Google Sheets", type="primary", key="save_to_sheets_btn"):
                 with st.spinner("💾 Saving to Google Sheets..."):
                     try:
-                        sheets_manager.add_multiple_candidates(candidates)
-                        sheet_url = sheets_manager.get_sheet_url()
-                        st.session_state.sheet_url = sheet_url
-                        st.session_state.processed_candidates = candidates
+                        # Get results from session state
+                        if 'ai_eval_results' not in st.session_state:
+                            st.error("❌ No evaluation results found. Please run evaluation first.")
+                        else:
+                            results_to_save = st.session_state.ai_eval_results
+                            jd_name = st.session_state.get('ai_eval_jd_name', 'AI Evaluation')
 
-                        st.success(f"✅ {len(candidates)} candidate(s) saved to Google Sheets!")
-                        st.markdown(f"[🔗 Open Google Sheet]({sheet_url})")
+                            # Get sheets manager
+                            sheets_manager = get_sheets_manager()
 
-                        # Show summary
-                        st.markdown("### 📈 Summary")
-                        summary_data = []
-                        for c in candidates:
-                            summary_data.append({
-                                'Name': str(c['candidate_name']),
-                                'Email': str(c['email']),
-                                'Phone': str(c['phone']),
-                                'Fit Score': int(c['auto_fit_score']) if c['auto_fit_score'] else 0,
-                                'Fit Label': str(c['auto_fit_label'])
-                            })
-                        st.dataframe(summary_data, use_container_width=True)
+                            if sheets_manager is None:
+                                st.error("❌ Google Sheets not configured")
+                            else:
+                                # Initialize Drive uploader
+                                try:
+                                    drive_uploader = DriveUploader(
+                                        credentials_path='credentials/service-account.json',
+                                        folder_id='1hqK7adC5NKJU2bbAyT24Mc9XhRyBIkIz'
+                                    )
+                                    print("[OK] Drive uploader initialized")
+                                except Exception as e:
+                                    print(f"[ERROR] Failed to initialize Drive uploader: {str(e)}")
+                                    drive_uploader = None
+
+                                # Convert results to format expected by sheets manager
+                                candidates_to_save = []
+                                for result in results_to_save:
+                                    # Use the AI-extracted experience brief
+                                    experience_brief = result.get('experience_brief') or 'N/A'
+
+                                    # Create detailed auto screen comment
+                                    auto_screen_comment = f"DECISION: {result['fit_label']}\n\n"
+                                    auto_screen_comment += f"REASONING: {result['reasoning']}\n\n"
+
+                                    if result['strengths']:
+                                        auto_screen_comment += f"HIGHLIGHTS:\n"
+                                        for strength in result['strengths']:
+                                            auto_screen_comment += f"✓ {strength}\n"
+                                        auto_screen_comment += "\n"
+
+                                    if result['gaps'] and result['gaps'] != ['None']:
+                                        auto_screen_comment += f"MISSING SKILLS/GAPS:\n"
+                                        for gap in result['gaps']:
+                                            auto_screen_comment += f"✗ {gap}\n"
+
+                                    # Upload resume to Google Drive
+                                    resume_link = ''
+                                    if drive_uploader:
+                                        try:
+                                            # Find the resume file path
+                                            resume_file_path = os.path.join('resumes', result['filename'])
+                                            if os.path.exists(resume_file_path):
+                                                resume_link = drive_uploader.upload_resume(
+                                                    file_path=resume_file_path,
+                                                    candidate_name=result['candidate_name'] or 'Unknown',
+                                                    job_role=jd_name
+                                                )
+                                        except Exception as e:
+                                            print(f"[ERROR] Failed to upload resume to Drive: {str(e)}")
+
+                                    candidate = {
+                                        'role_id': f"AI_{datetime.now().strftime('%Y%m%d')}",
+                                        'role_name': jd_name,
+                                        'candidate_name': result['candidate_name'] or 'Unknown',
+                                        'phone': result['phone'] or '',
+                                        'email': result['email'] or '',
+                                        'location': result['location'] or '',
+                                        'source_portal': 'AI Evaluator',
+                                        'experience_brief': experience_brief,
+                                        'total_years_experience': result.get('total_years_experience') or '',
+                                        'relevant_years_experience': result.get('relevant_years_experience') or '',
+                                        'ai_score_0_5': result['fit_score'],  # Raw AI score (0-5)
+                                        'auto_fit_score': result['fit_score'] * 20,  # Convert 0-5 to 0-100
+                                        'auto_fit_label': result['fit_label'],
+                                        'auto_screen_comment': auto_screen_comment,
+                                        'screened_by': st.session_state.get('user_email', 'Unknown'),  # Capture who did the screening
+                                        'resume_link': resume_link  # Google Drive link
+                                    }
+                                    candidates_to_save.append(candidate)
+
+                                # Save to sheets
+                                sheets_manager.add_multiple_candidates(candidates_to_save)
+                                sheet_url = sheets_manager.get_sheet_url()
+                                st.session_state.sheet_url = sheet_url
+                                st.session_state.save_success = True
+                                st.session_state.saved_count = len(candidates_to_save)
+
+                                # Show success message
+                                st.markdown("---")
+                                st.success(f"✅ {len(candidates_to_save)} candidate(s) saved to Google Sheets!")
+                                st.markdown(f"### [🔗 Open Google Sheet]({sheet_url})")
+                                st.balloons()
 
                     except Exception as e:
                         st.error(f"❌ Failed to save to Google Sheets: {str(e)}")
-            else:
-                st.warning("⚠️ No candidates were successfully processed")
+                        import traceback
+                        st.code(traceback.format_exc())
 
 # ============================================================
 # REVIEW CANDIDATES PAGE
@@ -857,6 +1180,9 @@ elif page == "📧 Send Notifications":
 # ============================================================
 # SETTINGS PAGE
 # ============================================================
+elif page == "👥 Admin: Manage Users":
+    show_admin_users_page()
+
 elif page == "⚙️ Settings":
     st.markdown('<div class="main-header">⚙️ Settings</div>', unsafe_allow_html=True)
 
