@@ -14,17 +14,41 @@ from typing import Dict, List, Optional
 try:
     from google.oauth2 import id_token
     from google.auth.transport import requests as google_requests
+    from google_auth_oauthlib.flow import Flow
     GOOGLE_AUTH_AVAILABLE = True
 except ImportError:
     GOOGLE_AUTH_AVAILABLE = False
     print("[WARNING] Google auth libraries not available. SSO will be disabled.")
 
 # Google OAuth Configuration (can be overridden via environment variables)
-GOOGLE_CLIENT_ID = os.getenv(
-    "GOOGLE_OAUTH_CLIENT_ID",
-    "411380325312-8lssceu6ggf5t5k35mhgd6dpcl374tbq.apps.googleusercontent.com"
-)
-ALLOWED_EMAIL_DOMAIN = os.getenv("ALLOWED_EMAIL_DOMAIN", "printo.in")
+# Support for multiple OAuth clients (Printo and Canvera)
+GOOGLE_CLIENT_ID_PRINTO = os.getenv("GOOGLE_OAUTH_CLIENT_ID_PRINTO", "675787155214-njto72teukrq4425erkf2voqtaojmps7.apps.googleusercontent.com")
+GOOGLE_CLIENT_SECRET_PRINTO = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET_PRINTO", "")
+
+GOOGLE_CLIENT_ID_CANVERA = os.getenv("GOOGLE_OAUTH_CLIENT_ID_CANVERA", "316876622534-8hthl3q8gm9v5p18nbmppqfdsrk62mt9.apps.googleusercontent.com")
+GOOGLE_CLIENT_SECRET_CANVERA = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET_CANVERA", "")
+
+# Legacy single client configuration (for backward compatibility)
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", GOOGLE_CLIENT_ID_PRINTO)
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "")
+
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "https://screening-hr.printo.in")
+ALLOWED_EMAIL_DOMAINS = os.getenv("ALLOWED_EMAIL_DOMAINS", "printo.in,canvera.com")
+ALLOWED_EMAIL_DOMAIN = os.getenv("ALLOWED_EMAIL_DOMAIN", "printo.in")  # Legacy
+
+# OAuth clients configuration
+OAUTH_CLIENTS = {
+    "printo.in": {
+        "client_id": GOOGLE_CLIENT_ID_PRINTO,
+        "client_secret": GOOGLE_CLIENT_SECRET_PRINTO,
+        "display_name": "Printo"
+    },
+    "canvera.com": {
+        "client_id": GOOGLE_CLIENT_ID_CANVERA,
+        "client_secret": GOOGLE_CLIENT_SECRET_CANVERA,
+        "display_name": "Canvera"
+    }
+}
 
 
 class AuthManager:
@@ -372,8 +396,11 @@ class AuthManager:
             picture = idinfo.get('picture', '')
 
             # Verify email domain restriction
-            if not email.endswith(f'@{ALLOWED_EMAIL_DOMAIN}'):
-                return False, f"Access denied. Only @{ALLOWED_EMAIL_DOMAIN} email addresses are allowed.", None
+            allowed_domains = ALLOWED_EMAIL_DOMAINS.split(',')
+            email_domain = email.split('@')[1] if '@' in email else ''
+            if email_domain not in allowed_domains:
+                domains_list = ', '.join([f"@{d}" for d in allowed_domains])
+                return False, f"Access denied. Only {domains_list} email addresses are allowed.", None
 
             user_info = {
                 'email': email,
@@ -452,6 +479,168 @@ class AuthManager:
         except Exception as e:
             return False, f"Google login failed: {str(e)}", None
 
+    def get_google_auth_url(self, domain: str = "printo.in") -> Optional[str]:
+        """
+        Build the Google OAuth authorization URL for redirect-based flow.
+        Returns None if client secret is not configured.
+
+        Args:
+            domain: Email domain (printo.in or canvera.com)
+        """
+        if not GOOGLE_AUTH_AVAILABLE:
+            return None
+
+        # Get OAuth client config for the domain
+        oauth_config = OAUTH_CLIENTS.get(domain)
+        if not oauth_config or not oauth_config["client_secret"]:
+            return None
+
+        flow = Flow.from_client_config(
+            {
+                "web": {
+                    "client_id": oauth_config["client_id"],
+                    "client_secret": oauth_config["client_secret"],
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                }
+            },
+            scopes=[
+                "https://www.googleapis.com/auth/userinfo.profile",
+                "https://www.googleapis.com/auth/userinfo.email",
+                "openid"
+            ],
+            redirect_uri=GOOGLE_REDIRECT_URI,
+        )
+        # Add domain as state parameter to track which OAuth client was used
+        auth_url, state = flow.authorization_url(
+            prompt="select_account",
+            state=f"domain:{domain}"
+        )
+        return auth_url
+
+    def get_available_oauth_clients(self) -> list:
+        """
+        Get list of available OAuth clients (domains that have credentials configured).
+
+        Returns:
+            List of tuples (domain, display_name)
+        """
+        available = []
+        for domain, config in OAUTH_CLIENTS.items():
+            if config["client_secret"]:
+                available.append((domain, config["display_name"]))
+        return available
+
+    def exchange_google_code(self, code: str, state: str = "") -> tuple[bool, str, Optional[Dict]]:
+        """
+        Exchange an authorization code for user info, then login/register.
+
+        Args:
+            code: Authorization code from OAuth callback
+            state: State parameter containing domain info
+
+        Returns:
+            Tuple of (success, message, user_data)
+        """
+        if not GOOGLE_AUTH_AVAILABLE:
+            return False, "Google OAuth is not configured", None
+
+        # Extract domain from state parameter if available
+        domain = None
+        if state and state.startswith("domain:"):
+            domain = state.split(":", 1)[1]
+
+        # Try each OAuth client until one works (in case state is missing)
+        oauth_configs_to_try = []
+        if domain and domain in OAUTH_CLIENTS:
+            oauth_configs_to_try.append((domain, OAUTH_CLIENTS[domain]))
+        else:
+            # Try all configured clients
+            oauth_configs_to_try = [(d, c) for d, c in OAUTH_CLIENTS.items() if c["client_secret"]]
+
+        last_error = "No OAuth clients configured"
+
+        for domain, oauth_config in oauth_configs_to_try:
+            try:
+                flow = Flow.from_client_config(
+                    {
+                        "web": {
+                            "client_id": oauth_config["client_id"],
+                            "client_secret": oauth_config["client_secret"],
+                            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                            "token_uri": "https://oauth2.googleapis.com/token",
+                        }
+                    },
+                    scopes=[
+                        "https://www.googleapis.com/auth/userinfo.profile",
+                        "https://www.googleapis.com/auth/userinfo.email",
+                        "openid"
+                    ],
+                    redirect_uri=GOOGLE_REDIRECT_URI,
+                )
+                flow.fetch_token(code=code)
+                credentials = flow.credentials
+
+                # Verify the ID token
+                idinfo = id_token.verify_oauth2_token(
+                    credentials.id_token,
+                    google_requests.Request(),
+                    oauth_config["client_id"],
+                )
+
+                email = idinfo.get("email", "")
+                name = idinfo.get("name", "")
+                picture = idinfo.get("picture", "")
+
+                # Verify email domain matches
+                if not email.endswith(f"@{domain}"):
+                    continue  # Try next OAuth client
+
+                # Successfully authenticated with this OAuth client
+                break
+
+            except Exception as e:
+                last_error = str(e)
+                continue  # Try next OAuth client
+        else:
+            # No OAuth client worked
+            return False, f"Google login failed: {last_error}", None
+
+        # Successfully authenticated - now handle user login/registration
+        try:
+            users_data = self._load_users()
+
+            if email in users_data["users"]:
+                user = users_data["users"][email]
+                if not user.get("is_active", False):
+                    return False, "Account is deactivated. Contact admin.", None
+                user["name"] = name or user.get("name", "")
+                user["picture"] = picture
+                user["google_id"] = idinfo.get("sub", "")
+                user["last_login"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                user["auth_method"] = "google_sso"
+                self._save_users(users_data)
+                return True, f"Welcome back, {user.get('name', email)}!", user
+            else:
+                new_user = {
+                    "email": email,
+                    "name": name,
+                    "picture": picture,
+                    "google_id": idinfo.get("sub", ""),
+                    "password_hash": None,
+                    "role": "user",
+                    "is_active": True,
+                    "auth_method": "google_sso",
+                    "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "last_login": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                }
+                users_data["users"][email] = new_user
+                self._save_users(users_data)
+                return True, f"Welcome, {name or email}! Your account has been created.", new_user
+
+        except Exception as e:
+            return False, f"Failed to create/update user: {str(e)}", None
+
     def is_google_auth_available(self) -> bool:
         """Check if Google authentication is available."""
         return GOOGLE_AUTH_AVAILABLE
@@ -461,8 +650,12 @@ class AuthManager:
         return GOOGLE_CLIENT_ID
 
     def get_allowed_domain(self) -> str:
-        """Get the allowed email domain for SSO."""
-        return ALLOWED_EMAIL_DOMAIN
+        """Get the allowed email domain for SSO (legacy - returns first domain)."""
+        return ALLOWED_EMAIL_DOMAINS.split(',')[0]
+
+    def get_allowed_domains(self) -> list:
+        """Get all allowed email domains for SSO."""
+        return [d.strip() for d in ALLOWED_EMAIL_DOMAINS.split(',')]
 
 
 # Example usage

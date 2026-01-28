@@ -2,368 +2,425 @@
 Authentication Pages Module
 Provides login, registration, and user management pages for Streamlit
 Supports both traditional email/password and Google SSO authentication
+Modern SaaS-style UI/UX
 """
 
 import streamlit as st
 from src.auth_manager import AuthManager
-import streamlit.components.v1 as components
 
 
-def get_google_signin_html(client_id: str) -> str:
-    """
-    Generate the HTML/JavaScript for Google Sign-In button.
+def apply_auth_styles():
+    """Apply modern SaaS-style CSS for authentication pages"""
+    st.markdown("""
+    <style>
+        /* Hide Streamlit branding */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
 
-    Args:
-        client_id: Google OAuth Client ID
+        /* Modern auth container */
+        .auth-container {
+            max-width: 440px;
+            margin: 2rem auto;
+            padding: 2.5rem;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07), 0 1px 3px rgba(0, 0, 0, 0.06);
+        }
 
-    Returns:
-        HTML string with Google Sign-In button
-    """
-    return f"""
-    <html>
-    <head>
-        <meta name="google-signin-client_id" content="{client_id}">
-        <script src="https://accounts.google.com/gsi/client" async defer></script>
-        <style>
-            .g_id_signin {{
-                display: flex;
-                justify-content: center;
-                margin: 20px 0;
-            }}
-            .google-btn-container {{
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                padding: 20px;
-                background: #f8f9fa;
-                border-radius: 10px;
-                margin: 10px 0;
-            }}
-            .domain-notice {{
-                font-size: 12px;
-                color: #666;
-                margin-top: 10px;
-                text-align: center;
-            }}
-            .success-message {{
-                color: #155724;
-                background: #d4edda;
-                padding: 10px 20px;
-                border-radius: 5px;
-                margin: 10px 0;
-                text-align: center;
-            }}
-            .error-message {{
-                color: #721c24;
-                background: #f8d7da;
-                padding: 10px 20px;
-                border-radius: 5px;
-                margin: 10px 0;
-                text-align: center;
-            }}
-            .token-display {{
-                background: #e9ecef;
-                padding: 10px;
-                border-radius: 5px;
-                margin: 10px 0;
-                word-break: break-all;
-                font-family: monospace;
-                font-size: 10px;
-                max-height: 100px;
-                overflow-y: auto;
-            }}
-            .copy-btn {{
-                background: #007bff;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 5px;
-                cursor: pointer;
-                margin-top: 10px;
-            }}
-            .copy-btn:hover {{
-                background: #0056b3;
-            }}
-            .instruction {{
-                font-size: 12px;
-                color: #666;
-                margin: 5px 0;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="google-btn-container">
-            <div id="g_id_onload"
-                data-client_id="{client_id}"
-                data-callback="handleCredentialResponse"
-                data-auto_prompt="false">
-            </div>
-            <div class="g_id_signin"
-                data-type="standard"
-                data-size="large"
-                data-theme="outline"
-                data-text="sign_in_with"
-                data-shape="rectangular"
-                data-logo_alignment="left">
-            </div>
-            <div class="domain-notice">
-                Only @printo.in email addresses are allowed
-            </div>
-        </div>
+        /* Logo/Brand area */
+        .auth-logo {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
 
-        <div id="result"></div>
+        .auth-logo h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: #1a1a1a;
+            margin-bottom: 0.5rem;
+        }
 
-        <script>
-            function handleCredentialResponse(response) {{
-                const token = response.credential;
+        .auth-logo p {
+            font-size: 0.95rem;
+            color: #6b7280;
+            margin: 0;
+        }
 
-                // Decode the JWT to get user info
-                const payload = JSON.parse(atob(token.split('.')[1]));
-                const email = payload.email;
-                const name = payload.name || '';
+        /* SSO Buttons */
+        .sso-button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: 0.75rem 1rem;
+            margin-bottom: 0.75rem;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 8px;
+            background: white;
+            color: #374151;
+            font-size: 0.95rem;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
 
-                // Check domain before proceeding
-                if (!email.endsWith('@printo.in')) {{
-                    document.getElementById('result').innerHTML =
-                        '<div class="error-message">Access denied. Only @printo.in emails are allowed.</div>';
-                    return;
-                }}
+        .sso-button:hover {
+            background: #f9fafb;
+            border-color: #d1d5db;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
 
-                // Show success and token for copying
-                document.getElementById('result').innerHTML =
-                    '<div class="success-message">✅ Verified: ' + email + '</div>' +
-                    '<p class="instruction">Copy this token and paste it in the "Manual Google Sign-In" section below:</p>' +
-                    '<div class="token-display" id="token-text">' + token + '</div>' +
-                    '<button class="copy-btn" onclick="copyToken()">📋 Copy Token</button>' +
-                    '<p class="instruction">After copying, expand "Manual Google Sign-In" below and paste the token.</p>';
+        .sso-icon {
+            margin-right: 0.75rem;
+            font-size: 1.25rem;
+        }
 
-                // Store in localStorage for persistence
-                localStorage.setItem('google_sso_token', token);
-                localStorage.setItem('google_sso_email', email);
-                localStorage.setItem('google_sso_name', name);
-            }}
+        /* Divider */
+        .auth-divider {
+            display: flex;
+            align-items: center;
+            text-align: center;
+            margin: 1.5rem 0;
+        }
 
-            function copyToken() {{
-                const tokenText = document.getElementById('token-text').innerText;
-                navigator.clipboard.writeText(tokenText).then(function() {{
-                    alert('Token copied! Now paste it in the "Manual Google Sign-In" section below.');
-                }});
-            }}
+        .auth-divider::before,
+        .auth-divider::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid #e5e7eb;
+        }
 
-            // Check for stored token on load
-            window.onload = function() {{
-                const storedToken = localStorage.getItem('google_sso_token');
-                if (storedToken) {{
-                    const storedEmail = localStorage.getItem('google_sso_email') || '';
-                    document.getElementById('result').innerHTML =
-                        '<div class="success-message">Previous sign-in found: ' + storedEmail + '</div>' +
-                        '<p class="instruction">Copy this token and paste it in the "Manual Google Sign-In" section below:</p>' +
-                        '<div class="token-display" id="token-text">' + storedToken + '</div>' +
-                        '<button class="copy-btn" onclick="copyToken()">📋 Copy Token</button>' +
-                        '<button class="copy-btn" onclick="clearToken()" style="background: #dc3545; margin-left: 10px;">🗑️ Clear</button>';
-                }}
-            }}
+        .auth-divider span {
+            padding: 0 1rem;
+            color: #6b7280;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
 
-            function clearToken() {{
-                localStorage.removeItem('google_sso_token');
-                localStorage.removeItem('google_sso_email');
-                localStorage.removeItem('google_sso_name');
-                document.getElementById('result').innerHTML = '';
-            }}
-        </script>
-    </body>
-    </html>
-    """
+        /* Info banner */
+        .auth-info {
+            padding: 0.875rem 1rem;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+        }
+
+        .auth-info p {
+            margin: 0;
+            color: #1e40af;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }
+
+        /* Form styling */
+        .stTextInput > div > div > input {
+            border-radius: 8px;
+            border: 1.5px solid #e5e7eb;
+            padding: 0.625rem 0.875rem;
+            font-size: 0.95rem;
+        }
+
+        .stTextInput > div > div > input:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        /* Primary button */
+        .stButton > button {
+            width: 100%;
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            font-size: 0.95rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .stButton > button:hover {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        }
+
+        /* Secondary link button */
+        .auth-secondary {
+            text-align: center;
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .auth-secondary p {
+            color: #6b7280;
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .auth-secondary a {
+            color: #3b82f6;
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        .auth-secondary a:hover {
+            color: #2563eb;
+            text-decoration: underline;
+        }
+
+        /* Success/Error messages */
+        .stSuccess, .stError {
+            border-radius: 8px;
+            padding: 0.875rem 1rem;
+            margin-bottom: 1rem;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
 
 def show_login_page():
-    """Display the login page with both traditional and Google SSO options"""
-    st.markdown('<div class="main-header">🔐 Login</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Please login to access the Hiring Automation Tool</div>', unsafe_allow_html=True)
+    """Display modern SaaS-style login page"""
+    apply_auth_styles()
 
     # Initialize auth manager
     auth = AuthManager()
 
-    # Check for Google token in query params (callback from Google Sign-In)
-    query_params = st.query_params
-    if 'google_token' in query_params:
-        google_token = query_params.get('google_token')
-        if google_token:
-            success, message, user_data = auth.login_with_google(google_token)
+    # ============================================================
+    # HANDLE GOOGLE OAUTH CALLBACK
+    # ============================================================
+    try:
+        query_params = st.query_params
+        auth_code = query_params.get("code", None)
+        state = query_params.get("state", "")
+
+        if auth_code and not st.session_state.get('oauth_processed', False):
+            st.session_state.oauth_processed = True
+
+            with st.spinner("Signing in with Google..."):
+                success, message, user_data = auth.exchange_google_code(auth_code, state)
+
+            try:
+                st.query_params.clear()
+            except Exception as e:
+                print(f"[WARNING] Could not clear query params: {e}")
+
             if success:
                 st.session_state.authenticated = True
                 st.session_state.user_email = user_data['email']
                 st.session_state.user_role = user_data.get('role', 'user')
                 st.session_state.user_name = user_data.get('name', '')
                 st.session_state.auth_method = 'google_sso'
-                # Clear query params
-                st.query_params.clear()
                 st.success(f"✅ {message}")
+                st.session_state.oauth_processed = False
                 st.rerun()
             else:
                 st.error(f"❌ {message}")
-                st.query_params.clear()
+                st.session_state.oauth_processed = False
+                try:
+                    st.query_params.clear()
+                except:
+                    pass
+
+    except Exception as e:
+        print(f"[ERROR] OAuth callback handling failed: {e}")
+        st.error(f"❌ OAuth callback error: {str(e)}")
 
     # ============================================================
-    # GOOGLE SSO LOGIN SECTION
+    # LOGIN PAGE LAYOUT
     # ============================================================
-    if auth.is_google_auth_available():
-        st.markdown("### Sign in with Google")
-        st.info(f"🔐 Only **@{auth.get_allowed_domain()}** email addresses are allowed")
 
-        # Check if we have a Google token in session state
-        if 'google_token_input' not in st.session_state:
-            st.session_state.google_token_input = ""
+    # Center column for auth card
+    col1, col2, col3 = st.columns([1, 2, 1])
 
-        # Display Google Sign-In button
-        google_html = get_google_signin_html(auth.get_google_client_id())
-        components.html(google_html, height=200)
+    with col2:
+        # Logo/Brand
+        st.markdown("""
+        <div class="auth-logo">
+            <h1>📋 Hiring Automation</h1>
+            <p>Sign in to continue to your account</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-        # Hidden input to receive Google token
-        st.markdown("---")
+        # Get available OAuth clients
+        if auth.is_google_auth_available():
+            available_clients = auth.get_available_oauth_clients()
 
-        # Manual token input for Google SSO (as fallback)
-        with st.expander("🔧 Manual Google Sign-In (if button doesn't work)"):
-            st.markdown("""
-            If the Google Sign-In button above doesn't work:
-            1. Go to [Google OAuth Playground](https://developers.google.com/oauthplayground/)
-            2. Or paste the ID token directly below
-            """)
-            google_token = st.text_input(
-                "Google ID Token",
+            if available_clients:
+                # Info banner
+                allowed_domains = auth.get_allowed_domains()
+                domains_text = " & ".join([f"@{d}" for d in allowed_domains])
+
+                st.markdown(f"""
+                <div class="auth-info">
+                    <p><strong>🔐 Authorized Access</strong><br>
+                    Only {domains_text} emails are allowed</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # SSO Buttons
+                for domain, display_name in available_clients:
+                    google_url = auth.get_google_auth_url(domain)
+                    st.markdown(f"""
+                    <a href="{google_url}" class="sso-button">
+                        <span class="sso-icon">🔑</span>
+                        <span>Continue with Google ({display_name})</span>
+                    </a>
+                    """, unsafe_allow_html=True)
+
+                # Divider
+                st.markdown("""
+                <div class="auth-divider">
+                    <span>OR</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+        # Email/Password Login Form
+        with st.form("login_form", clear_on_submit=False):
+            email = st.text_input(
+                "Email address",
+                placeholder="you@example.com",
+                key="login_email"
+            )
+            password = st.text_input(
+                "Password",
                 type="password",
-                key="google_token_manual",
-                placeholder="Paste your Google ID token here"
+                placeholder="Enter your password",
+                key="login_password"
             )
 
-            if st.button("🔑 Sign in with Token", key="google_token_submit"):
-                if google_token:
-                    success, message, user_data = auth.login_with_google(google_token)
+            submit = st.form_submit_button("Sign in", use_container_width=True)
+
+            if submit:
+                if not email or not password:
+                    st.error("❌ Please enter both email and password")
+                else:
+                    success, message, user_data = auth.login_user(email, password)
 
                     if success:
                         st.session_state.authenticated = True
-                        st.session_state.user_email = user_data['email']
-                        st.session_state.user_role = user_data.get('role', 'user')
-                        st.session_state.user_name = user_data.get('name', '')
-                        st.session_state.auth_method = 'google_sso'
+                        st.session_state.user_email = email
+                        st.session_state.user_role = user_data['role']
+                        st.session_state.user_name = user_data.get('name', email.split('@')[0])
+                        st.session_state.auth_method = 'password'
                         st.success(f"✅ {message}")
                         st.rerun()
                     else:
                         st.error(f"❌ {message}")
-                else:
-                    st.error("❌ Please enter a Google ID token")
 
-        st.markdown("---")
-        st.markdown("### Or sign in with email/password")
-    else:
-        st.warning("⚠️ Google SSO is not available. Please use email/password login.")
+        # Register link
+        st.markdown("""
+        <div class="auth-secondary">
+            <p>Don't have an account?</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # ============================================================
-    # TRADITIONAL EMAIL/PASSWORD LOGIN
-    # ============================================================
-    with st.form("login_form"):
-        email = st.text_input("Email", placeholder="your.email@printo.in")
-        password = st.text_input("Password", type="password")
-        submit = st.form_submit_button("🔑 Login", type="primary")
-
-        if submit:
-            if not email or not password:
-                st.error("❌ Please enter both email and password")
-            else:
-                success, message, user_data = auth.login_user(email, password)
-
-                if success:
-                    # Store user info in session state
-                    st.session_state.authenticated = True
-                    st.session_state.user_email = email
-                    st.session_state.user_role = user_data['role']
-                    st.session_state.user_name = user_data.get('name', email.split('@')[0])
-                    st.session_state.auth_method = 'password'
-                    st.success(f"✅ {message}")
-                    st.rerun()
-                else:
-                    st.error(f"❌ {message}")
-
-    st.markdown("---")
-
-    # Register link
-    st.markdown("### Don't have an account?")
-    if st.button("📝 Register New Account"):
-        st.session_state.show_register = True
-        st.rerun()
-
-    # Default credentials info
-    with st.expander("ℹ️ Default Admin Credentials"):
-        st.info("""
-        **Default Admin Account:**
-        - Email: `admin@printo.in`
-        - Password: `admin123`
-
-        ⚠️ Please change the password after first login!
-        """)
+        if st.button("Create an account", use_container_width=True, type="secondary"):
+            st.session_state.show_register = True
+            st.rerun()
 
 
 def show_register_page():
-    """Display the registration page"""
-    st.markdown('<div class="main-header">📝 Register</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Create a new account</div>', unsafe_allow_html=True)
+    """Display modern SaaS-style registration page"""
+    apply_auth_styles()
 
     # Initialize auth manager
     auth = AuthManager()
 
-    # Show SSO recommendation
-    if auth.is_google_auth_available():
-        st.info(f"""
-        💡 **Recommended:** Use Google Sign-In for easier access!
+    # Center column for auth card
+    col1, col2, col3 = st.columns([1, 2, 1])
 
-        If you have a **@{auth.get_allowed_domain()}** email, you can sign in directly with Google
-        without creating a password.
-        """)
+    with col2:
+        # Logo/Brand
+        st.markdown("""
+        <div class="auth-logo">
+            <h1>📋 Hiring Automation</h1>
+            <p>Create your account</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-        if st.button("🔙 Back to Login (Use Google Sign-In)"):
-            st.session_state.show_register = False
-            st.rerun()
+        # SSO Recommendation
+        if auth.is_google_auth_available():
+            available_clients = auth.get_available_oauth_clients()
 
-        st.markdown("---")
-        st.markdown("### Or create a password-based account")
+            if available_clients:
+                allowed_domains = auth.get_allowed_domains()
+                domains_text = " or ".join([f"@{d}" for d in allowed_domains])
 
-    # Registration form
-    with st.form("register_form"):
-        email = st.text_input("Email", placeholder="your.email@printo.in")
-        password = st.text_input("Password", type="password", help="Minimum 6 characters")
-        password_confirm = st.text_input("Confirm Password", type="password")
+                st.markdown(f"""
+                <div class="auth-info">
+                    <p><strong>💡 Recommended</strong><br>
+                    If you have a {domains_text} email, use Google Sign-In for instant access</p>
+                </div>
+                """, unsafe_allow_html=True)
 
-        submit = st.form_submit_button("📝 Register", type="primary")
-
-        if submit:
-            if not email or not password or not password_confirm:
-                st.error("❌ Please fill all fields")
-            elif password != password_confirm:
-                st.error("❌ Passwords do not match")
-            elif len(password) < 6:
-                st.error("❌ Password must be at least 6 characters")
-            else:
-                success, message = auth.register_user(email, password, role="user")
-
-                if success:
-                    st.success(f"✅ {message}")
-                    st.info("👉 You can now login with your credentials")
-                    st.balloons()
-
-                    # Auto-switch to login page after 2 seconds
-                    import time
-                    time.sleep(2)
+                # Back to login button
+                if st.button("← Back to Sign In", use_container_width=True, type="secondary"):
                     st.session_state.show_register = False
                     st.rerun()
+
+                # Divider
+                st.markdown("""
+                <div class="auth-divider">
+                    <span>OR REGISTER WITH EMAIL</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+        # Registration Form
+        with st.form("register_form", clear_on_submit=False):
+            email = st.text_input(
+                "Email address",
+                placeholder="you@example.com",
+                key="register_email"
+            )
+            password = st.text_input(
+                "Password",
+                type="password",
+                placeholder="At least 6 characters",
+                key="register_password"
+            )
+            password_confirm = st.text_input(
+                "Confirm password",
+                type="password",
+                placeholder="Re-enter your password",
+                key="register_password_confirm"
+            )
+
+            submit = st.form_submit_button("Create account", use_container_width=True)
+
+            if submit:
+                if not email or not password or not password_confirm:
+                    st.error("❌ Please fill in all fields")
+                elif password != password_confirm:
+                    st.error("❌ Passwords do not match")
+                elif len(password) < 6:
+                    st.error("❌ Password must be at least 6 characters")
                 else:
-                    st.error(f"❌ {message}")
+                    success, message = auth.register_user(email, password, role="user")
 
-    st.markdown("---")
+                    if success:
+                        st.success(f"✅ {message}")
+                        st.info("You can now sign in with your credentials")
+                        st.balloons()
 
-    # Back to login
-    if st.button("🔙 Back to Login"):
-        st.session_state.show_register = False
-        st.rerun()
+                        import time
+                        time.sleep(2)
+                        st.session_state.show_register = False
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {message}")
+
+        # Sign in link
+        st.markdown("""
+        <div class="auth-secondary">
+            <p>Already have an account?</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if st.button("Sign in instead", use_container_width=True, type="secondary"):
+            st.session_state.show_register = False
+            st.rerun()
 
 
 def show_admin_users_page():
